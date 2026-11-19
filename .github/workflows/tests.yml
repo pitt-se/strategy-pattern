@@ -1,0 +1,52 @@
+name: Strategy Pattern Checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    if: github.repository != 'pitt-se/strategy-pattern'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Characterization tests pass
+        run: mvn -B test
+
+      - name: Strategies implement DataProcessingStrategy
+        if: success() || failure()
+        run: |
+          mvn -B -q compile
+          count=$(javap -cp target/classes edu.pitt.se.PatientDataStrategy edu.pitt.se.PhysicianNotesStrategy edu.pitt.se.AppointmentScheduleStrategy \
+                  | grep -c 'implements edu.pitt.se.DataProcessingStrategy' || true)
+          echo "$count of 3 strategies implement DataProcessingStrategy"
+          [ "$count" -eq 3 ]
+
+      - name: Old process(type, input) method removed
+        if: success() || failure()
+        run: |
+          if javap -cp target/classes edu.pitt.se.DataEntryProcessor | grep -q 'process(java.lang.String, java.lang.String)'; then
+            echo "DataEntryProcessor still has process(type, input); move its logic into the strategies and delete it."
+            exit 1
+          fi
+
+      - name: Tests use the strategies
+        if: success() || failure()
+        run: |
+          if grep -q 'processor.process(' src/test/java/edu/pitt/se/*.java; then
+            echo "Tests still call processor.process(...); switch them to setStrategy(...) + run(...)."
+            exit 1
+          fi
